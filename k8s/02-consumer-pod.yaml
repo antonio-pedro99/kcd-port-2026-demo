@@ -11,14 +11,11 @@ spec:
   containers:
     - name: consumer
       image: antdev9/kafka-app-demo:consumer
-      env:
-        # Point at your Kafka bootstrap servers (deployed separately).
-        - name: KAFKA_BROKERS
-          value: "kafka:9092"
-        - name: KAFKA_TOPICS
-          value: "payments,transfers,cards"
-        - name: KAFKA_GROUP
-          value: "risk-alerts"
+      imagePullPolicy: Always
+      command: ["/consumer"]
+      envFrom:
+        - configMapRef:
+            name: kafka-app-config
       resources:
         requests:
           cpu: 100m

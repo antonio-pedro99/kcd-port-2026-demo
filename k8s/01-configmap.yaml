@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-app-config
+  labels:
+    app: kcd-port-demo
+data:
+  # Edit these for your Kafka deployment, then recreate the pods.
+  KAFKA_BROKERS: "my-cluster-kafka-bootstrap:9092"
+  KAFKA_TOPICS: "payments,transfers,cards"
+  KAFKA_RATE: "5000"
+  KAFKA_GROUP: "risk-alerts"
+  DATA_PATH: "/data/transactions.json"

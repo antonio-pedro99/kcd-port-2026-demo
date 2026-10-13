@@ -11,16 +11,13 @@ spec:
   containers:
     - name: producer
       image: antdev9/kafka-app-demo:producer
-      env:
-        # Point at your Kafka bootstrap servers (deployed separately).
-        - name: KAFKA_BROKERS
-          value: "kafka:9092"
-        - name: KAFKA_TOPICS
-          value: "payments,transfers,cards"
-        - name: KAFKA_RATE
-          value: "5000"
-        - name: DATA_PATH
-          value: "/data/transactions.json"
+      imagePullPolicy: Always
+      command: ["/producer"]
+      args:
+        - "-data=/data/transactions.json"
+      envFrom:
+        - configMapRef:
+            name: kafka-app-config
       resources:
         requests:
           cpu: 100m

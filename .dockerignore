@@ -2,6 +2,7 @@
 .gitignore
 README.md
 k8s
+scripts
 *.md
 .DS_Store
 bin
