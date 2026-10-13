@@ -25,8 +25,7 @@ metadata:
   labels:
     app: kcd-port-demo
 data:
-  # Edit these for your Kafka deployment, then recreate the pods.
-  KAFKA_BROKERS: "my-cluster-kafka-bootstrap:9092"
+  KAFKA_BROKERS: "my-cluster-kafka-bootstrap.kafka.svc:9092"
   KAFKA_TOPICS: "payments,transfers,cards"
   KAFKA_RATE: "5000"
   KAFKA_GROUP: "risk-alerts"
@@ -46,7 +45,7 @@ spec:
   containers:
     - name: consumer
       # Single-platform amd64 manifest (no OCI attestations).
-      image: antdev9/kafka-app-demo:consumer@sha256:a414a4976c29d7a8d7157948c913f694197f7c1c68182b86ae6390449d8acf67
+      image: antdev9/kafka-app-demo:consumer
       imagePullPolicy: Always
       command: ["/consumer"]
       envFrom:
@@ -74,7 +73,7 @@ spec:
   containers:
     - name: producer
       # Single-platform amd64 manifest (no OCI attestations).
-      image: antdev9/kafka-app-demo:producer@sha256:94d4850e2289dda7177e05d343ef6091d491a610a4bf54a5798c7b88f5d46da7
+      image: antdev9/kafka-app-demo:producer
       imagePullPolicy: Always
       command: ["/producer"]
       args:
