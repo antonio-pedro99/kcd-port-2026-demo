@@ -1,0 +1,91 @@
+# All-in-one deploy
+# Edit the ConfigMap (KAFKA_BROKERS, etc.) before or after apply, then recreate pods.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kafka-app
+  labels:
+    app: kcd-port-demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kcd-port-demo
+  namespace: kafka-app
+  labels:
+    app: kcd-port-demo
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-app-config
+  namespace: kafka-app
+  labels:
+    app: kcd-port-demo
+data:
+  # Edit these for your Kafka deployment, then recreate the pods.
+  KAFKA_BROKERS: "my-cluster-kafka-bootstrap:9092"
+  KAFKA_TOPICS: "payments,transfers,cards"
+  KAFKA_RATE: "5000"
+  KAFKA_GROUP: "risk-alerts"
+  DATA_PATH: "/data/transactions.json"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kafka-consumer
+  namespace: kafka-app
+  labels:
+    app: kafka-consumer
+spec:
+  serviceAccountName: kcd-port-demo
+  automountServiceAccountToken: false
+  restartPolicy: Always
+  containers:
+    - name: consumer
+      # Single-platform amd64 manifest (no OCI attestations).
+      image: antdev9/kafka-app-demo:consumer@sha256:a414a4976c29d7a8d7157948c913f694197f7c1c68182b86ae6390449d8acf67
+      imagePullPolicy: Always
+      command: ["/consumer"]
+      envFrom:
+        - configMapRef:
+            name: kafka-app-config
+      resources:
+        requests:
+          cpu: 100m
+          memory: 64Mi
+        limits:
+          cpu: "1"
+          memory: 256Mi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kafka-producer
+  namespace: kafka-app
+  labels:
+    app: kafka-producer
+spec:
+  serviceAccountName: kcd-port-demo
+  automountServiceAccountToken: false
+  restartPolicy: Always
+  containers:
+    - name: producer
+      # Single-platform amd64 manifest (no OCI attestations).
+      image: antdev9/kafka-app-demo:producer@sha256:94d4850e2289dda7177e05d343ef6091d491a610a4bf54a5798c7b88f5d46da7
+      imagePullPolicy: Always
+      command: ["/producer"]
+      args:
+        - "-data=/data/transactions.json"
+      envFrom:
+        - configMapRef:
+            name: kafka-app-config
+      resources:
+        requests:
+          cpu: 100m
+          memory: 64Mi
+        limits:
+          cpu: "1"
+          memory: 256Mi

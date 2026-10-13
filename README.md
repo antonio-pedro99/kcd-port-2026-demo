@@ -40,24 +40,31 @@ Publish to `antdev9/kafka-app-demo`. Use **Docker Desktop** on the Mac (BuildKit
 docker login
 export DOCKER_BUILDKIT=1
 
-# --platform selects the cluster arch; BuildKit sets TARGETARCH=amd64 for the Go build
-docker build --platform linux/amd64 --target producer \
-  -t antdev9/kafka-app-demo:producer --push .
+# --provenance=false avoids OCI attestation indexes that confuse some lab clusters
+docker build --platform linux/amd64 --provenance=false --sbom=false \
+  --target producer -t antdev9/kafka-app-demo:producer --push .
 
-docker build --platform linux/amd64 --target consumer \
-  -t antdev9/kafka-app-demo:consumer --push .
+docker build --platform linux/amd64 --provenance=false --sbom=false \
+  --target consumer -t antdev9/kafka-app-demo:consumer --push .
 ```
 
 Or: `./scripts/build-push.sh`
 
-Check the published image (not a stale local arm64 tag):
+Confirm Hub has `linux/amd64`, then pin that **manifest** digest in the pod YAML (`image: …@sha256:…`).
 
 ```bash
 docker buildx imagetools inspect antdev9/kafka-app-demo:consumer
-# Platform should include linux/amd64
 ```
 
-Without `--platform` on Apple Silicon you get `arm64` → cluster pods fail with `exec format error`.
+If pods still show `exec format error`, the node likely has a stale local image. On the cluster:
+
+```bash
+kubectl -n app delete pod kafka-producer kafka-consumer
+# on each node that ran the pod:
+crictl rmi docker.io/antdev9/kafka-app-demo:consumer || true
+crictl rmi docker.io/antdev9/kafka-app-demo:producer || true
+kubectl apply -f k8s/ -n app
+```
 
 ### From the controlplane (native amd64)
 
@@ -77,35 +84,32 @@ kubectl apply -f k8s/ -n kafka-app
 
 Pods set `command` (and producer `args`) explicitly; Kafka settings come from the ConfigMap.
 
-## Deploy on Kubernetes
+## Deploy on Kubernetes (no git clone)
 
-Edit Kafka settings in [`k8s/01-configmap.yaml`](k8s/01-configmap.yaml), then:
+Single manifest with Namespace → ServiceAccount → ConfigMap → consumer → producer:
+
+[`kafka-app.yaml`](kafka-app.yaml)
 
 ```bash
-kubectl apply -f k8s/ -n kafka-app
+# no clone — apply from GitHub (after push to main):
+kubectl apply -f https://raw.githubusercontent.com/antonio-pedro99/kcd-port-2026-demo/main/kafka-app.yaml
+
+# or from a local copy of the file:
+kubectl apply -f kafka-app.yaml
+
+# edit brokers/topics/rate if needed
+kubectl -n kafka-app edit configmap kafka-app-config
+kubectl -n kafka-app delete pod kafka-producer kafka-consumer
+kubectl apply -f kafka-app.yaml
+
 kubectl -n kafka-app get pods
 kubectl -n kafka-app logs -f kafka-producer
 kubectl -n kafka-app logs -f kafka-consumer
 ```
 
-ConfigMap changes are picked up only when pods are recreated:
+Split files under [`k8s/`](k8s/) remain for local editing; prefer `kafka-app.yaml` for demos.
 
-```bash
-kubectl apply -f k8s/01-configmap.yaml -n kafka-app
-kubectl -n kafka-app delete pod kafka-producer kafka-consumer
-kubectl apply -f k8s/ -n kafka-app
-```
-
-Manifests:
-
-| File | Resource |
-|------|----------|
-| [`k8s/00-service-account.yaml`](k8s/00-service-account.yaml) | `kcd-port-demo` ServiceAccount (`automountServiceAccountToken: false`) |
-| [`k8s/01-configmap.yaml`](k8s/01-configmap.yaml) | `kafka-app-config` ConfigMap (Kafka settings) |
-| [`k8s/02-consumer-pod.yaml`](k8s/02-consumer-pod.yaml) | Consumer pod → `antdev9/kafka-app-demo:consumer` |
-| [`k8s/03-producer-pod.yaml`](k8s/03-producer-pod.yaml) | Producer pod → `antdev9/kafka-app-demo:producer` |
-
-Pods load config via `envFrom` → ConfigMap. ServiceAccount token automount is disabled (no Kubernetes API access required).
+Pods load config via `envFrom` → ConfigMap. ServiceAccount token automount is disabled.
 
 ### Configuration (`kafka-app-config`)
 
