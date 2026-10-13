@@ -31,16 +31,38 @@ docker build --target producer -t kcd-producer:latest .
 docker build --target consumer -t kcd-consumer:latest .
 ```
 
-Load or push images for your cluster as needed (`kind load docker-image`, `minikube image load`, or a registry + updated image fields in the pods).
+Pods use `imagePullPolicy: Never`, so the image must already exist on the **node that runs the pod** in the Kubernetes container runtime (containerd). Building with Docker alone is not enough — Docker and containerd do not share an image store.
+
+### Make images available to the cluster (containerd)
+
+On each node that will schedule the pods (often `controlplane` in a lab):
+
+```bash
+docker save kcd-producer:latest | ctr -n k8s.io images import -
+docker save kcd-consumer:latest | ctr -n k8s.io images import -
+
+# optional check
+ctr -n k8s.io images ls | grep kcd-
+```
+
+Alternatives: `kind load docker-image kcd-producer:latest`, `minikube image load kcd-producer:latest`, or push to a registry and change the pod image + `imagePullPolicy`.
 
 ## Deploy on Kubernetes
 
 Set `KAFKA_BROKERS` in the pod manifests to your bootstrap servers, then:
 
 ```bash
-kubectl apply -f k8s/
-kubectl logs -f kafka-producer
-kubectl logs -f kafka-consumer
+kubectl apply -f k8s/ -n kafka-app
+kubectl -n kafka-app get pods
+kubectl -n kafka-app logs -f kafka-producer
+kubectl -n kafka-app logs -f kafka-consumer
+```
+
+If pods were already created with `ErrImagePull` / `ImagePullBackOff`, re-import the images (above), then:
+
+```bash
+kubectl -n kafka-app delete pod kafka-producer kafka-consumer
+kubectl apply -f k8s/ -n kafka-app
 ```
 
 Manifests:

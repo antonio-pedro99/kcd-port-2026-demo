@@ -11,7 +11,8 @@ spec:
   containers:
     - name: producer
       image: kcd-producer:latest
-      imagePullPolicy: IfNotPresent
+      # Local/lab images: do not pull from a registry.
+      imagePullPolicy: Never
       env:
         # Point at your Kafka bootstrap servers (deployed separately).
         - name: KAFKA_BROKERS
