@@ -1,151 +1,70 @@
-# KCD Port 2026 — Kafka Console Demo
+# KCD Port 2026 — Apache Kafka with Strimzi Demo
 
-Two Go console apps that simulate financial transaction traffic on Apache Kafka:
+The goal of this demo is to demonstrate how to deploy and maintain an Apache Kafka cluster on Kubernetes using Strimzi.
 
-- **producer** — loads synthetic transactions from JSON, shuffles them, and publishes across multiple topics at a configurable rate
-- **consumer** — consumes those topics, emits risk alerts, and reports throughput, consumer lag, and sequence numbers
+## Client Applications
 
-Kafka is deployed separately. Point the apps at it with `KAFKA_BROKERS` (or `-brokers`).
+I have created two simple client applications in Go: a producer and a consumer. The producer generates synthetic transactions and sends them to Kafka topics, while the consumer reads messages from those topics and prints them to the console.
 
-## Layout
+Both applications will run in Kubernetes pods, but in a different namespace than the Kafka cluster. The producer will send messages to three topics: `payments`, `transfers`, and `cards`. The consumer will read messages from those topics and print them to the console.
 
-```text
-cmd/producer/     producer console app
-cmd/consumer/     consumer console app
-data/             synthetic transactions JSON
-Dockerfile        multi-target images (producer | consumer)
-k8s/              ServiceAccount + pods
-```
+> NOTE: Explaining the code is out of scope for this demo. The code is available in the `cmd/producer` and `cmd/consumer` directories.
 
 ## Prerequisites
 
-- Go 1.22+ (local runs)
-- Docker / buildx (image builds)
-- kubectl + a cluster (pod runs)
-- A reachable Kafka cluster (topics such as `payments`, `transfers`, `cards`)
+In this demo, we assume that you have a Kubernetes cluster running and that you have `kubectl` configured to access it.
+Moreover, both client applications can be deployed in the following ways:
 
-## Build and push images
-
-Follows Docker’s [Go guide](https://docs.docker.com/guides/golang/) + [multi-platform builds](https://docs.docker.com/build/building/multi-platform/):
-
-- `# syntax=docker/dockerfile:1` (BuildKit)
-- Multi-stage: compile in `golang`, run in distroless
-- `FROM --platform=$BUILDPLATFORM` + `TARGETOS` / `TARGETARCH` so a Mac can cross-compile for the **amd64** cluster
-
-Publish to `antdev9/kafka-app-demo`. Use **Docker Desktop** on the Mac (BuildKit is on by default).
-
-### From your Mac (recommended)
+1. Create a namespace
 
 ```bash
-docker login
-export DOCKER_BUILDKIT=1
-
-# --provenance=false avoids OCI attestation indexes that confuse some lab clusters
-docker build --platform linux/amd64 --provenance=false --sbom=false \
-  --target producer -t antdev9/kafka-app-demo:producer --push .
-
-docker build --platform linux/amd64 --provenance=false --sbom=false \
-  --target consumer -t antdev9/kafka-app-demo:consumer --push .
+kubectl create namespace kafka-app
 ```
 
-Or: `./scripts/build-push.sh`
-
-Confirm Hub has `linux/amd64`, then pin that **manifest** digest in the pod YAML (`image: …@sha256:…`).
+2. Apply the `kafka-app.yaml` manifest to deploy the producer and consumer applications in the `kafka-app` namespace.
 
 ```bash
-docker buildx imagetools inspect antdev9/kafka-app-demo:consumer
+kubectl apply -f https://raw.githubusercontent.com/antonio-pedro99/kcd-port-2026-demo/refs/heads/main/kafka-app.yaml -n kafka-app
 ```
 
-If pods still show `exec format error`, the node likely has a stale local image. On the cluster:
+## Installing the Strimzi Operator and CRDs
+
+Before deploying the Kafka cluster, we need to install the Strimzi operator in the `kafka` namespace. You can do this by applying the `strimzi-cluster-operator` manifest:
+
+1. Create a namespace for Kafka
 
 ```bash
-kubectl -n app delete pod kafka-producer kafka-consumer
-# on each node that ran the pod:
-crictl rmi docker.io/antdev9/kafka-app-demo:consumer || true
-crictl rmi docker.io/antdev9/kafka-app-demo:producer || true
-kubectl apply -f k8s/ -n app
+kubectl create namespace kafka
 ```
 
-### From the controlplane (native amd64)
+2. Apply the Strimzi operator manifest
 
 ```bash
-docker build --target producer -t antdev9/kafka-app-demo:producer .
-docker build --target consumer -t antdev9/kafka-app-demo:consumer .
-docker push antdev9/kafka-app-demo:producer
-docker push antdev9/kafka-app-demo:consumer
+kubectl create -f 'https://strimzi.io/install/latest?namespace=kafka' -n kafka
 ```
 
-Then recreate pods:
+This command will create the necessary resources for the Strimzi operator in the `kafka` namespace.
+
+3. Now you should have the Strimzi operator running in the `kafka` namespace. You can check the status of the operator by running:
 
 ```bash
-kubectl -n kafka-app delete pod kafka-producer kafka-consumer
-kubectl apply -f k8s/ -n kafka-app
+kubectl get pods -n kafka
 ```
 
-Pods set `command` (and producer `args`) explicitly; Kafka settings come from the ConfigMap.
+## Deploying the Kafka Cluster
 
-## Deploy on Kubernetes (no git clone)
-
-Single manifest with Namespace → ServiceAccount → ConfigMap → consumer → producer:
-
-[`kafka-app.yaml`](kafka-app.yaml)
+Now that the Strimzi operator is running, we can deploy a Kafka cluster. You can do this by applying the `kafka-cluster.yaml` manifest:
 
 ```bash
-# no clone — apply from GitHub (after push to main):
-kubectl apply -f https://raw.githubusercontent.com/antonio-pedro99/kcd-port-2026-demo/main/kafka-app.yaml
-
-# or from a local copy of the file:
-kubectl apply -f kafka-app.yaml
-
-# edit brokers/topics/rate if needed
-kubectl -n kafka-app edit configmap kafka-app-config
-kubectl -n kafka-app delete pod kafka-producer kafka-consumer
-kubectl apply -f kafka-app.yaml
-
-kubectl -n kafka-app get pods
-kubectl -n kafka-app logs -f kafka-producer
-kubectl -n kafka-app logs -f kafka-consumer
+kubectl apply -f https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml -n kafka
 ```
 
-Split files under [`k8s/`](k8s/) remain for local editing; prefer `kafka-app.yaml` for demos.
-
-Pods load config via `envFrom` → ConfigMap. ServiceAccount token automount is disabled.
-
-### Configuration (`kafka-app-config`)
-
-| Key | Used by | Example | Description |
-|-----|---------|---------|-------------|
-| `KAFKA_BROKERS` | both | `kafka:9092` | Bootstrap brokers |
-| `KAFKA_TOPICS` | both | `payments,transfers,cards` | Topics (producer hashes by `account_id`) |
-| `KAFKA_RATE` | producer | `5000` | Target produce rate (messages/sec) |
-| `DATA_PATH` | producer | `/data/transactions.json` | Path to synthetic JSON in the image |
-| `KAFKA_GROUP` | consumer | `risk-alerts` | Consumer group id |
-
-CLI flags mirror the same settings for local runs: `-brokers`, `-topics`, `-rate`, `-data`, `-group`.
-
-## Local run
+Before anything, let's check and wait for the Kafka cluster to be ready:
 
 ```bash
-go run ./cmd/producer -brokers localhost:9092 -rate 5000
-go run ./cmd/consumer -brokers localhost:9092
+kubectl wait kafka/my-cluster --for=condition=Ready --timeout=300s -n kafka 
 ```
 
-Example status lines:
+Our Kafka cluster is now up and running. Our producer and consumer applications are already deployed in the `kafka-app` namespace, and they will start sending and receiving messages from the Kafka topics.
 
-```text
-[producer] rate=5000 msg/s  seq=1204331  topics=payments:4150,transfers:4100,cards:4181
-[consumer] rate=4890 msg/s  lag=12440  seq=1191891  alerts=37
-```
-
-Risk alerts fire when `risk_score >= 0.8` or `amount >= 10000`.
-
-## Synthetic data
-
-[`data/transactions.json`](data/transactions.json) has 3,000 sample financial transactions (`txn_id`, `account_id`, `amount`, `currency`, `merchant`, `country`, `risk_score`, file `seq`, …).
-
-The producer:
-
-1. Loads the file once
-2. Shuffles records so emit order is **not** file `seq` order
-3. Reshuffles after each full pass
-4. Assigns a monotonic `produce_seq` used for metrics (independent of file `seq`)
+The second part of the demo is to show how we maintain the Kafka cluster and its components.
