@@ -20,32 +20,9 @@ k8s/              ServiceAccount + pods
 ## Prerequisites
 
 - Go 1.22+ (local runs)
-- Docker (image builds)
 - kubectl + a cluster (pod runs)
 - A reachable Kafka cluster (topics such as `payments`, `transfers`, `cards`)
 
-## Build images
-
-```bash
-docker build --target producer -t kcd-producer:latest .
-docker build --target consumer -t kcd-consumer:latest .
-```
-
-Pods use `imagePullPolicy: Never`, so the image must already exist on the **node that runs the pod** in the Kubernetes container runtime (containerd). Building with Docker alone is not enough — Docker and containerd do not share an image store.
-
-### Make images available to the cluster (containerd)
-
-On each node that will schedule the pods (often `controlplane` in a lab):
-
-```bash
-docker save kcd-producer:latest | ctr -n k8s.io images import -
-docker save kcd-consumer:latest | ctr -n k8s.io images import -
-
-# optional check
-ctr -n k8s.io images ls | grep kcd-
-```
-
-Alternatives: `kind load docker-image kcd-producer:latest`, `minikube image load kcd-producer:latest`, or push to a registry and change the pod image + `imagePullPolicy`.
 
 ## Deploy on Kubernetes
 
@@ -58,22 +35,15 @@ kubectl -n kafka-app logs -f kafka-producer
 kubectl -n kafka-app logs -f kafka-consumer
 ```
 
-If pods were already created with `ErrImagePull` / `ImagePullBackOff`, re-import the images (above), then:
-
-```bash
-kubectl -n kafka-app delete pod kafka-producer kafka-consumer
-kubectl apply -f k8s/ -n kafka-app
-```
-
 Manifests:
 
 | File | Resource |
 |------|----------|
 | [`k8s/00-service-account.yaml`](k8s/00-service-account.yaml) | `kcd-port-demo` ServiceAccount (`automountServiceAccountToken: false`) |
-| [`k8s/01-consumer-pod.yaml`](k8s/01-consumer-pod.yaml) | Consumer pod |
-| [`k8s/02-producer-pod.yaml`](k8s/02-producer-pod.yaml) | Producer pod |
+| [`k8s/01-consumer-pod.yaml`](k8s/01-consumer-pod.yaml) | Consumer pod → `antdev9/kafka-app-demo:consumer` |
+| [`k8s/02-producer-pod.yaml`](k8s/02-producer-pod.yaml) | Producer pod → `antdev9/kafka-app-demo:producer` |
 
-Pods use that ServiceAccount and also set `automountServiceAccountToken: false` (no Kubernetes API access required).
+Pods use that ServiceAccount with `automountServiceAccountToken: false` (no Kubernetes API access required).
 
 ### Configuration
 
