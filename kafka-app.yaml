@@ -41,7 +41,6 @@ metadata:
 spec:
   serviceAccountName: kcd-port-demo
   automountServiceAccountToken: false
-  restartPolicy: Always
   containers:
     - name: consumer
       # Single-platform amd64 manifest (no OCI attestations).
@@ -72,10 +71,8 @@ spec:
   restartPolicy: Always
   containers:
     - name: producer
-      # Single-platform amd64 manifest (no OCI attestations).
       image: antdev9/kafka-app-demo:producer
-      imagePullPolicy: Always
-      command: ["/producer"]
+      command: ["/producer --rate=500"]
       args:
         - "-data=/data/transactions.json"
       envFrom:
