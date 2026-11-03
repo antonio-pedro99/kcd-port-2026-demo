@@ -72,8 +72,9 @@ spec:
   containers:
     - name: producer
       image: antdev9/kafka-app-demo:producer
-      command: ["/producer --rate=500"]
+      command: ["/producer"]
       args:
+        - "-rate=500"
         - "-data=/data/transactions.json"
       envFrom:
         - configMapRef:
